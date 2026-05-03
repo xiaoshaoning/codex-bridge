@@ -1,0 +1,45 @@
+{
+  "name": "codex_bridge",
+  "version": "1.0.0",
+  "description": "TypeScript proxy server converting OpenAI Responses API to DeepSeek Chat Completions",
+  "main": "dist/server.js",
+  "scripts": {
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "nodemon src/server.ts",
+    "test": "jest",
+    "load-test": "node load-test/simple.js",
+    "load-test-full": "node load-test/index.js",
+    "benchmark": "node benchmarks/api-benchmark.js"
+  },
+  "keywords": ["deepseek", "openai", "codex", "proxy", "api-bridge", "responses-api"],
+  "author": "Xiao Shaoning",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.15.0",
+    "axios-retry": "^4.5.0",
+    "express": "^5.2.1",
+    "node-cache": "^5.1.2",
+    "prom-client": "^15.1.3",
+    "winston": "^3.19.0",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/axios": "^0.9.36",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.6.0",
+    "@types/supertest": "^7.2.0",
+    "@types/ws": "^8.18.1",
+    "jest": "^30.3.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}

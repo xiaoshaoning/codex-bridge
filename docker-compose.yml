@@ -1,0 +1,66 @@
+services:
+  codex-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: codex-bridge
+    ports:
+      - "8098:8098"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
+      - PORT=8098
+      - NODE_ENV=production
+
+      # Auth & CORS
+      # - CODEX_API_KEY=${CODEX_API_KEY:-}
+      # - CORS_ORIGINS=${CORS_ORIGINS:-*}
+
+      # Rate limiting
+      # - RATE_LIMIT_MAX=100
+      # - RATE_LIMIT_WINDOW_MS=60000
+
+      # Connection pool
+      - POOL_DEFAULT_MAX_SOCKETS=100
+      - POOL_DEFAULT_MAX_FREE_SOCKETS=10
+      - POOL_DEFAULT_TIMEOUT=60000
+      - POOL_STREAMING_MAX_SOCKETS=50
+      - POOL_STREAMING_MAX_FREE_SOCKETS=5
+      - POOL_STREAMING_TIMEOUT=120000
+
+      # Retry strategy
+      - AXIOS_RETRIES=3
+      - AXIOS_RETRY_BASE_DELAY=100
+      - AXIOS_RETRY_MAX_DELAY=5000
+
+      # Streaming
+      - STREAM_CONNECTION_TIMEOUT=15000
+      - STREAM_IDLE_TIMEOUT=60000
+      - STREAM_MAX_DURATION=300000
+      - STREAM_MAX_BUFFER_SIZE=1048576
+      - STREAM_HIGH_WATER_MARK=16384
+      - NON_STREAM_TIMEOUT=30000
+
+      # Batch processing
+      # - BATCH_CONCURRENCY=5
+
+      # Upstream (optional overrides)
+      # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-}
+
+      # Shutdown (optional)
+      # - SHUTDOWN_SECRET=${SHUTDOWN_SECRET:-}
+    volumes:
+      - ./log:/app/log
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8098/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

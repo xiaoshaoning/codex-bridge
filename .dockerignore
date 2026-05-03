@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.git/
+.gitignore
+*.md
+log/
+logs/
+coverage/
+test_*.json
+__tests__/
+*.test.ts
+tsconfig.json
+tsconfig.test.json
+nodemon.json
+.env*
+.DS_Store
+
+# Project-specific
+.claude/
+.codex-home/
+output/
+scripts/
+tmp/

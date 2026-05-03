@@ -1,0 +1,122 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+out/
+build/
+*.tsbuildinfo
+
+# Logs
+log/
+*.log
+logs/
+
+# Output directory
+output/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Runtime data
+*.pid
+*.seed
+*.pid.lock
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+
+# Coverage directory
+coverage/
+.nyc_output
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# TypeScript cache
+.tscache/
+
+# Optional REPL history
+.node_repl_history
+
+# Debug log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Codex CLI runtime data
+.codex-home/
+
+# Project-specific ignores
+# Log files
+*.log
+debug.log
+server.log
+proxy_out.log
+server_test.log
+
+# Test output directories
+test_unicode_results/
+test_fix/
+test_fix2/
+
+# Temporary test files
+test2.c
+test_hello.c
+test_output.c
+test_request.json
+test_small.json
+test_stream.json
+test_tool.json
+test_tools.json
+
+# SSE test outputs
+test_sse_*.txt
+stream_out.txt
+
+# Load test results
+load-test-results/
+load-test-results-simple.json
+
+# Old test scripts
+generate.js
+generate.bat
+run_codex_example.bat
+test_codex.bat
+test_encoding.js
+test_escape.js
+test_interactive.js
+test_proxy_simple.js
+test_tool_calls_comprehensive.js
+test_unicode_full.js
+test_unicode_tools.js
+
+# Root JSON test fixtures
+test_request.json
+test_small.json
+test_stream.json
+test_tool.json
