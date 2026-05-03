@@ -218,12 +218,18 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
             arguments: item.arguments
           }
         }));
-        messages.push({
-          role: 'assistant',
-          content: null,
-          tool_calls: tool_calls
-        });
-        logger.debug(`Flushed ${function_call_buffer.length} function_calls into single assistant message`);
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.tool_calls) {
+          lastMsg.tool_calls = tool_calls;
+          logger.debug(`Merged ${function_call_buffer.length} function_calls into previous assistant message`);
+        } else {
+          messages.push({
+            role: 'assistant',
+            content: null,
+            tool_calls: tool_calls
+          });
+          logger.debug(`Flushed ${function_call_buffer.length} function_calls into new assistant message`);
+        }
         function_call_buffer = [];
       }
 
