@@ -287,19 +287,71 @@ export async function handle_streaming_response(
         if (finish_reason) {
           if (Object.keys(tool_call_accumulators).length > 0) {
             const indices = Object.keys(tool_call_accumulators).map(Number).sort();
+            let any_valid_tool_call = false;
             for (const idx of indices) {
               const acc = tool_call_accumulators[idx];
               let arguments_str = acc.arguments.trim() || '{}';
+              // Skip tool calls with empty arguments — DeepSeek often returns {} for complex tools
               try {
                 const parsed = JSON.parse(arguments_str);
+                if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) {
+                  logger.warn(`Skipping streaming tool call '${acc.name}' with empty arguments`);
+                  continue;
+                }
                 const escaped = escape_json_string_values(parsed);
                 arguments_str = JSON.stringify(escaped);
               } catch (e) {
                 // Keep original text if JSON parsing fails
               }
+              any_valid_tool_call = true;
               const item = { type: "function_call", call_id: acc.id, name: acc.name, arguments: arguments_str };
               const done_event = { type: "response.output_item.done", item };
               await backpressure_write(res, `event: response.output_item.done\ndata: ${JSON.stringify(done_event)}\n\n`);
+            }
+            // If all tool calls had empty arguments, fall back to XML parsing from content buffer
+            if (!any_valid_tool_call && content_buffer) {
+              const { tool_calls: xml_tool_calls } = parse_xml_function_calls(content_buffer, logger);
+              if (xml_tool_calls && xml_tool_calls.length > 0) {
+                logger.info(`Emitting ${xml_tool_calls.length} tool call(s) from XML in streaming finish (empty args fallback)`);
+                for (const tc of xml_tool_calls) {
+                  const tc_id = tc.id;
+                  const tc_name = tc.function.name;
+                  let args_str = tc.function.arguments || '{}';
+                  try {
+                    const parsed = JSON.parse(args_str);
+                    const escaped = escape_json_string_values(parsed);
+                    args_str = JSON.stringify(escaped);
+                  } catch (e) {}
+                  const added_item = { type: "function_call", call_id: tc_id, name: tc_name, arguments: "" };
+                  const added_event = { type: "response.output_item.added", item: added_item };
+                  await backpressure_write(res, `event: response.output_item.added\ndata: ${JSON.stringify(added_event)}\n\n`);
+                  const delta_event = { type: "response.output_text.delta", delta: args_str };
+                  await backpressure_write(res, `event: response.output_text.delta\ndata: ${JSON.stringify(delta_event)}\n\n`);
+                  const done_item = { type: "function_call", call_id: tc_id, name: tc_name, arguments: args_str };
+                  const done_event = { type: "response.output_item.done", item: done_item };
+                  await backpressure_write(res, `event: response.output_item.done\ndata: ${JSON.stringify(done_event)}\n\n`);
+                }
+              } else {
+                // No XML either — emit buffered content as text
+                logger.info("No valid tool calls or XML, emitting buffered content as text");
+                if (!initial_item_sent) {
+                  const initial_item = { type: "message", role: "assistant", content: [] };
+                  const added_event = { type: "response.output_item.added", item: initial_item };
+                  await backpressure_write(res, `event: response.output_item.added\ndata: ${JSON.stringify(added_event)}\n\n`);
+                }
+                const stripped_content = strip_markdown_fences(content_buffer);
+                if (stripped_content) {
+                  const delta_event = { type: "response.output_text.delta", delta: stripped_content };
+                  await backpressure_write(res, `event: response.output_text.delta\ndata: ${JSON.stringify(delta_event)}\n\n`);
+                }
+                const done_item = {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "text", text: stripped_content }]
+                };
+                const done_event = { type: "response.output_item.done", item: done_item };
+                await backpressure_write(res, `event: response.output_item.done\ndata: ${JSON.stringify(done_event)}\n\n`);
+              }
             }
           } else if (content_buffer) {
             if (has_tools) {

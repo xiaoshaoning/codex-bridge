@@ -115,7 +115,8 @@ function fix_message_sequence(messages: any[]): any[] {
 
 // DeepSeek's function calling struggles with complex parameter schemas containing
 // many optional fields, often producing empty `{}` arguments. Strip non-required
-// properties so the model only sees what it must generate.
+// properties and convert complex types to simple strings so the model reliably
+// generates valid arguments.
 function simplify_tool_parameters(params: any): any {
   if (!params || params.type !== 'object') return params;
   if (!Array.isArray(params.required) || params.required.length === 0) {
@@ -125,7 +126,9 @@ function simplify_tool_parameters(params: any): any {
   for (const key of params.required) {
     if (params.properties && params.properties[key]) {
       const prop = params.properties[key];
-      simplified_properties[key] = { type: prop.type || 'string', description: prop.description || '' };
+      // Convert all required fields to simple strings — DeepSeek handles
+      // strings reliably but fails on arrays, objects, and enums
+      simplified_properties[key] = { type: 'string', description: prop.description || '' };
     }
   }
   return { type: 'object', properties: simplified_properties, required: [...params.required] };
@@ -551,20 +554,44 @@ export function convert_tool_calls_response(deepseek_response: DeepSeekChatRespo
   const message = choices[0].message || {};
   const tool_calls = message.tool_calls || [];
 
-  // Process each tool call to escape non-ASCII characters in arguments
+  // Process each tool call, filtering out empty-argument calls
   const processed_tool_calls = [];
+  // Build a lookup of valid parameter names from the original tool definitions
+  // so we can strip extra fields DeepSeek generates from context (e.g. sandbox_permissions)
+  const original_tools = original_request.tools || [];
+
   for (const tool_call of tool_calls) {
     const func = tool_call.function || {};
     let arguments_str = func.arguments || '{}';
-    // Try to parse arguments as JSON and escape non-ASCII characters in string values
+
+    // Parse arguments to check if they are empty and to filter extra fields
     try {
       const parsed = JSON.parse(arguments_str);
+      if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) {
+        logger.warn(`Skipping tool call '${func.name || 'unknown'}' with empty arguments {}`);
+        continue;
+      }
+      // Strip fields that are not in the original tool's required list
+      // (DeepSeek often generates context-derived fields like sandbox_permissions)
+      const tool_def = original_tools.find(t =>
+        (t.function?.name === func.name) || (t.name === func.name)
+      );
+      const valid_keys: Set<string> = new Set();
+      const required_params = tool_def?.function?.parameters?.required || tool_def?.parameters?.required || [];
+      for (const k of required_params) valid_keys.add(k);
+      if (valid_keys.size > 0) {
+        for (const key of Object.keys(parsed)) {
+          if (!valid_keys.has(key)) {
+            logger.debug(`Stripping extra field '${key}' from tool call '${func.name}' arguments`);
+            delete parsed[key];
+          }
+        }
+      }
       const escaped = escape_json_string_values(parsed);
       arguments_str = JSON.stringify(escaped);
       logger.debug(`Escaped non-ASCII characters in tool call arguments`);
     } catch (e) {
-      // If not valid JSON, fall back to escaping the whole string as a string
-      logger.warn(`Tool call arguments not valid JSON, escaping as plain string: ${e}`);
+      logger.warn(`Tool call arguments not valid JSON, keeping as-is: ${e}`);
       arguments_str = escape_non_ascii_to_unicode(arguments_str);
     }
     processed_tool_calls.push({
@@ -572,6 +599,20 @@ export function convert_tool_calls_response(deepseek_response: DeepSeekChatRespo
       name: func.name || '',
       arguments: arguments_str
     });
+  }
+
+  // If all tool calls had empty arguments, try XML parsing or text fallback
+  if (processed_tool_calls.length === 0) {
+    logger.info("All tool calls have empty arguments, trying XML parsing fallback");
+    const content = message.content || '';
+    if (content) {
+      const { clean_content, tool_calls: xml_tool_calls } = parse_xml_function_calls(content, logger);
+      if (xml_tool_calls && xml_tool_calls.length > 0) {
+        return convert_tool_calls_from_xml(deepseek_response, original_request, xml_tool_calls, clean_content, logger);
+      }
+      return convert_regular_response(deepseek_response, original_request, logger);
+    }
+    return null;
   }
 
   // Convert tool calls to Responses API format
@@ -612,7 +653,7 @@ export function convert_tool_calls_response(deepseek_response: DeepSeekChatRespo
     created: deepseek_response.created || 0
   };
 
-  logger.info(`Converted tool calls response: ${tool_calls.length} tool calls`);
+  logger.info(`Converted tool calls response: ${processed_tool_calls.length} tool calls (filtered from ${tool_calls.length})`);
   return responses_response;
 }
 

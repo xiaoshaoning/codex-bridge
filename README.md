@@ -17,7 +17,7 @@ Codex Bridge acts as a translation layer between OpenAI's Responses API format a
 - **Caching** — 5-second TTL for non-streaming responses with request deduplication
 - **Circuit breaker** — Prevents cascading failures when upstream is degraded
 - **Connection pooling** — Separate pools for streaming and non-streaming requests
-- **Codex CLI 0.133.0+ support** — Handles namespace tool types, model response mapping, and message reordering for tool call sequences
+- **Codex CLI 0.133.0+ support** — Handles namespace tool types, model response mapping, message reordering for tool call sequences, parameter schema simplification for DeepSeek compatibility, and empty argument fallback to XML/text
 - **Rate limiting** — Per-IP sliding window (configurable via `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS`)
 - **API key auth** — Optional `CODEX_API_KEY` for client authentication
 - **CORS** — Configurable origin allowlist (default `*`)
