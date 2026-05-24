@@ -444,7 +444,7 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
     model: deepseek_model,
     messages: fixed_messages,
     stream: stream,
-    max_tokens: 4096,
+    max_tokens: parseInt(process.env.MAX_TOKENS || '4096', 10),
     temperature: 0.7,
     thinking: { type: "disabled" }
   };

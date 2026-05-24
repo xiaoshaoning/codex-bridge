@@ -72,6 +72,7 @@ Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OP
 | `SHUTDOWN_SECRET` | — | Secret for `POST /shutdown` endpoint |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated) |
 | `CODEX_API_KEY` | — | API key for client authentication (optional) |
+| `MAX_TOKENS` | `4096` | Max tokens per response |
 | `RATE_LIMIT_MAX` | `100` | Max requests per window |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Rate limit window in ms |
 
