@@ -68,6 +68,18 @@ The server starts on port 8098 by default (configurable via `PORT` env var).
 
 Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OPENAI_API_KEY`
 
+### Windows Shell Recommendation
+
+DeepSeek models have limited training data for PowerShell syntax and often generate malformed commands on Windows. For best results, set `SHELL` to Git Bash before starting Codex CLI:
+
+```powershell
+$env:SHELL = "C:\Program Files\Git\bin\bash.exe"
+```
+
+```cmd
+set SHELL=C:\Program Files\Git\bin\bash.exe
+```
+
 ## API Endpoints
 
 | Method | Path | Description |
