@@ -160,6 +160,66 @@ function fix_message_sequence(messages: any[]): any[] {
   return result;
 }
 
+// Rough token estimate: 1 token ≈ 4 chars for most text, fewer for dense text
+function estimate_tokens(text: string): number {
+  return Math.ceil(text.length / 3.5);
+}
+
+// Drop oldest non-system messages when total tokens approach the model context limit.
+// DeepSeek reports a 1,048,576 token limit (1M tokens). Keep system messages and
+// the most recent user/assistant exchanges.
+const DEEPSEEK_CONTEXT_LIMIT = parseInt(process.env.CONTEXT_LIMIT || '1048576', 10);
+const COMPLETION_HEADROOM = parseInt(process.env.COMPLETION_HEADROOM || '8192', 10);
+// Log context budget at module load for debugging
+console.log(`[converter] CONTEXT_LIMIT=${DEEPSEEK_CONTEXT_LIMIT}, COMPLETION_HEADROOM=${COMPLETION_HEADROOM}, budget=${DEEPSEEK_CONTEXT_LIMIT - COMPLETION_HEADROOM}`);
+function truncate_messages(messages: any[], logger: any): any[] {
+  // Count tokens for all messages
+  let total_tokens = 0;
+  const system_msgs: any[] = [];
+  const history_msgs: any[] = [];
+  let in_system_block = true;
+
+  for (const msg of messages) {
+    const text = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content || '');
+    const tokens = estimate_tokens(text);
+    msg._tokens = tokens;
+
+    if (in_system_block && msg.role === 'system') {
+      system_msgs.push(msg);
+      total_tokens += tokens;
+      continue;
+    }
+    in_system_block = false;
+    history_msgs.push(msg);
+    total_tokens += tokens;
+  }
+
+  const budget = DEEPSEEK_CONTEXT_LIMIT - COMPLETION_HEADROOM;
+  if (total_tokens <= budget) {
+    // Clean up temp property and return as-is
+    for (const m of messages) delete m._tokens;
+    return messages;
+  }
+
+  // Drop oldest history messages from the front until within budget
+  logger.warn(`Total messages exceed context budget: ${total_tokens} > ${budget}, truncating history`);
+  while (history_msgs.length > 1 && total_tokens > budget) {
+    const oldest = history_msgs.shift();
+    if (oldest) {
+      total_tokens -= oldest._tokens || 0;
+      delete oldest._tokens;
+    }
+  }
+
+  // Clean up temp properties
+  for (const m of system_msgs) delete m._tokens;
+  for (const m of history_msgs) delete m._tokens;
+
+  const result = [...system_msgs, ...history_msgs];
+  logger.info(`Truncated messages: ${messages.length} → ${result.length}, estimated tokens: ${total_tokens}`);
+  return result;
+}
+
 // DeepSeek's function calling struggles with complex parameter schemas containing
 // many optional fields, often producing empty `{}` arguments. Strip non-required
 // properties and convert complex types to simple strings so the model reliably
@@ -515,10 +575,14 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
   // Codex CLI) inserted between tool_calls and tool results break this sequence.
   const fixed_messages = fix_message_sequence(messages);
 
+  // Truncate oldest messages when approaching the model's context limit (~1M tokens)
+  // to avoid DeepSeek's token limit errors on long conversations.
+  const truncated_messages = truncate_messages(fixed_messages, logger);
+
   // Build chat completions request
   const chat_request: DeepSeekChatRequest = {
     model: deepseek_model,
-    messages: fixed_messages,
+    messages: truncated_messages,
     stream: stream,
     max_tokens: parseInt(process.env.MAX_TOKENS || '4096', 10),
     temperature: 0.7,

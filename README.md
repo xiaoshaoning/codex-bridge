@@ -18,6 +18,7 @@ Codex Bridge acts as a translation layer between OpenAI's Responses API format a
 - **Circuit breaker** — Prevents cascading failures when upstream is degraded
 - **Connection pooling** — Separate pools for streaming and non-streaming requests
 - **Codex CLI 0.133.0+ support** — Handles namespace tool types, model response mapping, message reordering for tool call sequences, parameter schema simplification for DeepSeek compatibility, and empty argument fallback to XML/text
+- **Context window management** — Auto-truncates oldest history when approaching model's token limit (configurable via `CONTEXT_LIMIT` / `COMPLETION_HEADROOM`)
 - **Rate limiting** — Per-IP sliding window (configurable via `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS`)
 - **API key auth** — Optional `CODEX_API_KEY` for client authentication
 - **CORS** — Configurable origin allowlist (default `*`)
@@ -92,6 +93,8 @@ Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OP
 | `CODEX_API_KEY` | — | API key for client authentication (optional) |
 | `MAX_TOKENS` | `4096` | Max tokens per response |
 | `MAX_INSTRUCTION_LENGTH` | `4000` | Max chars for instructions/system prompt truncation |
+| `CONTEXT_LIMIT` | `1048576` | DeepSeek context window in tokens (auto-truncates older messages to fit) |
+| `COMPLETION_HEADROOM` | `8192` | Tokens reserved for the completion response |
 | `RATE_LIMIT_MAX` | `100` | Max requests per window |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Rate limit window in ms |
 
@@ -101,7 +104,7 @@ Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OP
 codex_bridge/
 ├── src/
 │   ├── server.ts              # Express server setup and routes
-│   ├── converter.ts           # API format conversion (OpenAI ↔ DeepSeek), namespace tool handling, message sequence reordering, model response mapping
+│   ├── converter.ts           # API format conversion (OpenAI ↔ DeepSeek), namespace tool handling, message sequence reordering, model response mapping, context truncation
 │   ├── streaming.ts           # SSE streaming handlers
 │   ├── auth.ts                # API key validation middleware
 │   ├── rate-limiter.ts        # Sliding window rate limiter
