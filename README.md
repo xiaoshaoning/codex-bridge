@@ -73,6 +73,7 @@ Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OP
 | `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated) |
 | `CODEX_API_KEY` | — | API key for client authentication (optional) |
 | `MAX_TOKENS` | `4096` | Max tokens per response |
+| `MAX_INSTRUCTION_LENGTH` | `4000` | Max chars for instructions/system prompt truncation |
 | `RATE_LIMIT_MAX` | `100` | Max requests per window |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Rate limit window in ms |
 

@@ -258,7 +258,7 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
       logger.info('Detected emit/call pattern in instructions');
     }
     // Truncate instructions if too long to avoid token limits
-    const max_instr_len = 500;
+    const max_instr_len = parseInt(process.env.MAX_INSTRUCTION_LENGTH || '4000', 10);
     if (instructions.length > max_instr_len) {
       logger.warn(`Truncating instructions from ${instructions.length} to ${max_instr_len} chars`);
       instructions = instructions.substring(0, max_instr_len) + "... [truncated]";
