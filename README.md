@@ -25,18 +25,6 @@ Codex Bridge acts as a translation layer between OpenAI's Responses API format a
 - **Enhanced health check** — `/health` with cache, circuit breaker, and connection pool stats
 - **Memory monitoring** — Periodic heap checks with leak detection
 
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/v1/responses` | Main proxy endpoint |
-| `POST` | `/responses` | Alternative endpoint |
-| `GET` | `/health` | Health check with component stats |
-| `GET` | `/metrics` | Prometheus metrics |
-| `POST` | `/v1/responses:batch` | Batch processing (up to 50 items) |
-| `POST` | `/shutdown` | Graceful shutdown (requires `SHUTDOWN_SECRET`) |
-| WebSocket | `/ws` | Real-time streaming via JSON messages |
-
 ## Quick Start
 
 ```bash
@@ -56,10 +44,6 @@ export DEEPSEEK_API_KEY=sk-your-key-here
 npm start
 ```
 
-The server starts on port 8098 by default (configurable via `PORT` env var).
-
-Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OPENAI_API_KEY`
-
 ### Windows PowerShell
 
 ```powershell
@@ -77,6 +61,22 @@ set MAX_TOKENS=16384
 set MAX_INSTRUCTION_LENGTH=8000
 npm start
 ```
+
+The server starts on port 8098 by default (configurable via `PORT` env var).
+
+Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OPENAI_API_KEY`
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/responses` | Main proxy endpoint |
+| `POST` | `/responses` | Alternative endpoint |
+| `GET` | `/health` | Health check with component stats |
+| `GET` | `/metrics` | Prometheus metrics |
+| `POST` | `/v1/responses:batch` | Batch processing (up to 50 items) |
+| `POST` | `/shutdown` | Graceful shutdown (requires `SHUTDOWN_SECRET`) |
+| WebSocket | `/ws` | Real-time streaming via JSON messages |
 
 ## Environment Variables
 
