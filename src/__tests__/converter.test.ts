@@ -251,6 +251,7 @@ describe('convert_responses_to_chat_completions', () => {
   });
 
   it('should truncate long instructions', () => {
+    process.env.MAX_INSTRUCTION_LENGTH = '500';
     const longInstructions = 'A'.repeat(1000);
     const req: OpenAiResponsesRequest = {
       model: 'deepseek-chat',
@@ -263,6 +264,7 @@ describe('convert_responses_to_chat_completions', () => {
 
     expect(result.messages[0].content!.length).toBeLessThanOrEqual(600);
     expect(result.messages[0].content).toContain('[truncated]');
+    delete process.env.MAX_INSTRUCTION_LENGTH;
   });
 
   it('should enhance instructions for tool call keywords', () => {

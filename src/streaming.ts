@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { URL } from 'url';
 import { ConnectionPool } from './connection-pool';
 import { CircuitBreaker } from './circuit-breaker';
-import { strip_markdown_fences, escape_non_ascii_to_unicode, parse_xml_function_calls } from './converter';
+import { strip_markdown_fences, escape_non_ascii_to_unicode, parse_xml_function_calls, fix_verilog_system_tasks } from './converter';
 import { ConverterPlugin } from './plugin-system';
 import { upstreamRequestDuration, streamingRequestDuration, streamChunksTotal } from './metrics';
 import { randomBytes } from 'crypto';
@@ -285,6 +285,7 @@ export async function handle_streaming_response(
 
         // Finish reason
         if (finish_reason) {
+          content_buffer = fix_verilog_system_tasks(content_buffer);
           if (Object.keys(tool_call_accumulators).length > 0) {
             const indices = Object.keys(tool_call_accumulators).map(Number).sort();
             let any_valid_tool_call = false;
@@ -352,6 +353,22 @@ export async function handle_streaming_response(
                 const done_event = { type: "response.output_item.done", item: done_item };
                 await backpressure_write(res, `event: response.output_item.done\ndata: ${JSON.stringify(done_event)}\n\n`);
               }
+            } else if (!any_valid_tool_call) {
+              // No valid tool calls and no content — emit a minimal text response
+              // to prevent Codex CLI from hanging on an empty response
+              logger.info("No valid tool calls or content, emitting minimal message");
+              if (!initial_item_sent) {
+                const initial_item = { type: "message", role: "assistant", content: [] };
+                const added_event = { type: "response.output_item.added", item: initial_item };
+                await backpressure_write(res, `event: response.output_item.added\ndata: ${JSON.stringify(added_event)}\n\n`);
+              }
+              const done_item = {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "" }]
+              };
+              const done_event = { type: "response.output_item.done", item: done_item };
+              await backpressure_write(res, `event: response.output_item.done\ndata: ${JSON.stringify(done_event)}\n\n`);
             }
           } else if (content_buffer) {
             if (has_tools) {
@@ -600,7 +617,8 @@ export function* generate_simulated_sse(responses_response: any, logger: any): G
     const choices = responses_response.choices || [];
     if (choices.length > 0) {
       const message = choices[0].message || {};
-      const content = message.content || '';
+      let content = message.content || '';
+      content = fix_verilog_system_tasks(content);
       const tool_calls = message.tool_calls;
 
       if (tool_calls) {

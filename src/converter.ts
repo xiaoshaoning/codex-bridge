@@ -52,6 +52,53 @@ export function escape_json_string_values(obj: any): any {
   }
 }
 
+const VERILOG_SYSTEM_TASKS = [
+  'display', 'finish', 'dumpfile', 'dumpvars', 'monitor', 'stop',
+  'fopen', 'fwrite', 'fclose', 'fscanf', 'fdisplay', 'strobe',
+  'time', 'realtime', 'readmemh', 'readmemb', 'writememh', 'writememb',
+  'random', 'urandom', 'dumpall', 'dumpoff', 'dumpon', 'dumplimit'
+];
+
+export function looks_like_verilog(text: string): boolean {
+  if (!text || text.length < 10) return false;
+  const lower = text.toLowerCase();
+  const keywords = [
+    'module ', 'endmodule', 'always ', 'initial ', 'posedge ', 'negedge ',
+    'input ', 'output ', 'inout ', 'reg ', 'wire ', 'assign ', 'begin', 'end '
+  ];
+  let matches = 0;
+  for (const kw of keywords) {
+    if (lower.includes(kw)) {
+      matches++;
+      if (matches >= 2) return true;
+    }
+  }
+  return false;
+}
+
+export function fix_verilog_system_tasks(text: string): string {
+  if (!text || !looks_like_verilog(text)) return text;
+  const task_pattern = VERILOG_SYSTEM_TASKS.join('|');
+  // Match system task names not already preceded by $, followed by ( or ; or whitespace+(
+  const regex = new RegExp(`(?<!\\\$)\\b(${task_pattern})(\\s*[;(])`, 'gi');
+  return text.replace(regex, '$$$1$2');
+}
+
+function fix_verilog_in_args(args: any): any {
+  if (typeof args === 'string') {
+    return fix_verilog_system_tasks(args);
+  } else if (Array.isArray(args)) {
+    return args.map(fix_verilog_in_args);
+  } else if (args !== null && typeof args === 'object') {
+    const result: any = {};
+    for (const key of Object.keys(args)) {
+      result[key] = fix_verilog_in_args(args[key]);
+    }
+    return result;
+  }
+  return args;
+}
+
 // Map Codex model names to DeepSeek model names (forward) and back (reverse)
 const model_mapping: { [key: string]: string } = {
   "gpt-5.1-codex-max": "deepseek-v4-pro",
@@ -283,6 +330,22 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
       // multi-line strings on Windows, causing SyntaxError. Steer it toward PowerShell.
       final_instructions += "\n\nOn Windows: prefer PowerShell for file operations (Out-File, Set-Content, Add-Content). Avoid python -c with inline string literals containing newlines — escaping does not work reliably on Windows cmd.";
       logger.info('Enhanced instructions for tool call scenarios');
+    }
+
+    // Verilog context hint: DeepSeek often drops $ prefix on system tasks ($display, $finish, etc.)
+    const verilog_keywords = ['module ', 'endmodule', 'always ', 'initial ', 'iverilog', '.v '];
+    const has_verilog_context = verilog_keywords.some(kw => instructions.toLowerCase().includes(kw));
+    if (has_verilog_context) {
+      final_instructions += "\n\nWhen generating Verilog code, always prefix system tasks with $ (e.g. $display, $finish, $dumpfile, $dumpvars). Never omit the $ prefix on system tasks.";
+      logger.info('Enhanced instructions for Verilog context');
+    }
+
+    // Windows PowerShell path hint: backslashes in paths need single quotes to prevent escape interpretation
+    const windows_path_patterns = ['D:\\', 'C:\\', 'powershell', 'PowerShell', '.exe', 'iverilog'];
+    const has_windows_path_context = windows_path_patterns.some(p => instructions.includes(p));
+    if (has_windows_path_context) {
+      final_instructions += "\n\nOn Windows in PowerShell: always use single quotes for file paths (e.g. $src = 'D:\\codes\\file.v'). Double quotes interpret \\r, \\n, \\t as escape sequences and will corrupt paths containing those substrings (e.g. \"_v\\rtl\\\" becomes \"_vrtl\\\" because \\r is consumed as carriage return). Single quotes treat backslashes literally.";
+      logger.info('Enhanced instructions for Windows PowerShell path escaping');
     }
 
     messages.push({
@@ -600,7 +663,7 @@ export function convert_tool_calls_response(deepseek_response: DeepSeekChatRespo
           }
         }
       }
-      const escaped = escape_json_string_values(parsed);
+      const escaped = escape_json_string_values(fix_verilog_in_args(parsed));
       arguments_str = JSON.stringify(escaped);
       logger.debug(`Escaped non-ASCII characters in tool call arguments`);
     } catch (e) {
@@ -700,6 +763,9 @@ export function convert_regular_response(deepseek_response: DeepSeekChatResponse
     return convert_tool_calls_from_xml(deepseek_response, original_request, tool_calls, clean_content, logger);
   }
 
+  // Fix missing $ on Verilog system tasks (e.g. display( → $display()
+  const fixed_content = fix_verilog_system_tasks(clean_content);
+
   // Create regular text response
   const responses_response: OpenAiResponsesResponse = {
     id: deepseek_response.id || `resp_${randomBytes(8).toString('hex')}`,
@@ -710,7 +776,7 @@ export function convert_regular_response(deepseek_response: DeepSeekChatResponse
         index: 0,
         message: {
           role: message.role || "assistant",
-          content: clean_content
+          content: fixed_content
         },
         finish_reason: choices[0].finish_reason || "stop"
       }
@@ -719,7 +785,7 @@ export function convert_regular_response(deepseek_response: DeepSeekChatResponse
     created: deepseek_response.created || 0
   };
 
-  logger.info(`Converted regular response: content length=${clean_content.length}`);
+  logger.info(`Converted regular response: content length=${fixed_content.length}`);
   return responses_response;
 }
 
@@ -736,7 +802,7 @@ export function convert_tool_calls_from_xml(deepseek_response: DeepSeekChatRespo
     // Try to parse arguments as JSON and escape non-ASCII characters in string values
     try {
       const parsed = JSON.parse(arguments_str);
-      const escaped = escape_json_string_values(parsed);
+      const escaped = escape_json_string_values(fix_verilog_in_args(parsed));
       arguments_str = JSON.stringify(escaped);
       logger.debug(`Escaped non-ASCII characters in XML tool call arguments`);
     } catch (e) {

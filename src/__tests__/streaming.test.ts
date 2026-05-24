@@ -31,6 +31,7 @@ jest.mock('../converter', () => ({
     }
     return { clean_content: '', tool_calls };
   }),
+  fix_verilog_system_tasks: jest.fn((s: string) => s),
 }));
 
 // Mock connection-pool
