@@ -240,7 +240,13 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
       'run command',
       'call function',
       'use tool',
-      'tool call'
+      'tool call',
+      'write file',
+      'create file',
+      'save file',
+      'write to',
+      'open(',
+      'print('
     ];
 
     let needsToolCallEnhancement = false;
@@ -261,7 +267,11 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
     const max_instr_len = parseInt(process.env.MAX_INSTRUCTION_LENGTH || '4000', 10);
     if (instructions.length > max_instr_len) {
       logger.warn(`Truncating instructions from ${instructions.length} to ${max_instr_len} chars`);
-      instructions = instructions.substring(0, max_instr_len) + "... [truncated]";
+      // Keep the end of instructions (tool definitions, permissions, skills) rather
+      // than the beginning (agent identity boilerplate) which is less useful to DeepSeek
+      instructions = instructions.substring(instructions.length - max_instr_len);
+      // Add a marker so the model knows content was truncated
+      instructions = "[truncated] " + instructions;
     }
 
     // Enhance instructions for tool call scenarios
@@ -269,6 +279,9 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
     if (needsToolCallEnhancement) {
       // Add explicit instruction to use available tools
       final_instructions = instructions + "\n\nIMPORTANT: When the user requests an action that matches an available tool function, you MUST use that tool. Do not ask for clarification unless absolutely necessary. Emit the appropriate function call with the best available parameters based on the user's request.";
+      // Windows-specific hint: DeepSeek often generates broken python -c with inline
+      // multi-line strings on Windows, causing SyntaxError. Steer it toward PowerShell.
+      final_instructions += "\n\nOn Windows: prefer PowerShell for file operations (Out-File, Set-Content, Add-Content). Avoid python -c with inline string literals containing newlines — escaping does not work reliably on Windows cmd.";
       logger.info('Enhanced instructions for tool call scenarios');
     }
 
@@ -612,7 +625,20 @@ export function convert_tool_calls_response(deepseek_response: DeepSeekChatRespo
       }
       return convert_regular_response(deepseek_response, original_request, logger);
     }
-    return null;
+    // No content and no valid tool calls — return empty text response to avoid hanging
+    logger.info("No content or valid tool calls, returning empty text response");
+    return {
+      id: deepseek_response.id || `resp_${randomBytes(8).toString('hex')}`,
+      object: "response",
+      model: get_response_model(original_request.model),
+      choices: [{
+        index: 0,
+        message: { role: "assistant", content: "" },
+        finish_reason: "stop"
+      }],
+      usage: deepseek_response.usage || {},
+      created: deepseek_response.created || 0
+    };
   }
 
   // Convert tool calls to Responses API format
