@@ -52,6 +52,85 @@ export function escape_json_string_values(obj: any): any {
   }
 }
 
+// Map Codex model names to DeepSeek model names (forward) and back (reverse)
+const model_mapping: { [key: string]: string } = {
+  "gpt-5.1-codex-max": "deepseek-v4-pro",
+  "gpt-5.1-codex-mini": "deepseek-v4-flash",
+  "gpt-5.1-codex": "deepseek-v4-pro",
+  "gpt-5.1": "deepseek-v4-pro",
+  "gpt-4": "deepseek-v4-pro",
+  "gpt-3.5-turbo": "deepseek-v4-flash",
+  "deepseek-chat": "deepseek-v4-pro",
+  "deepseek-v4-pro": "deepseek-v4-pro",
+  "deepseek-v4-flash": "deepseek-v4-flash"
+};
+
+// Return a model name Codex recognizes for metadata lookup
+function get_response_model(original_model: string | undefined): string {
+  const reverse_mapping: { [key: string]: string } = {
+    "deepseek-v4-pro": "gpt-5.1-codex",
+    "deepseek-v4-flash": "gpt-5.1-codex-mini"
+  };
+  const mapped = model_mapping[original_model || ""];
+  return reverse_mapping[mapped || ""] || original_model || "gpt-5.1-codex";
+}
+
+// DeepSeek Chat Completions requires tool messages to immediately follow the
+// assistant message with tool_calls. Codex CLI may insert system messages
+// (e.g. approval notes) between them. This function moves such system messages
+// to before the corresponding assistant message.
+function fix_message_sequence(messages: any[]): any[] {
+  const result: any[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const msg = messages[i];
+    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      // Collect tool messages and any system messages that precede them
+      const system_msgs: any[] = [];
+      const tool_msgs: any[] = [];
+      let j = i + 1;
+      while (j < messages.length) {
+        if (messages[j].role === 'tool') {
+          tool_msgs.push(messages[j]);
+          j++;
+        } else if (messages[j].role === 'system' && j + 1 < messages.length && messages[j + 1].role === 'tool') {
+          // System message that breaks the tool_calls → tool sequence — move it before the assistant
+          system_msgs.push(messages[j]);
+          j++;
+        } else {
+          break;
+        }
+      }
+      result.push(...system_msgs);
+      result.push(msg);
+      result.push(...tool_msgs);
+      i = j;
+    } else {
+      result.push(msg);
+      i++;
+    }
+  }
+  return result;
+}
+
+// DeepSeek's function calling struggles with complex parameter schemas containing
+// many optional fields, often producing empty `{}` arguments. Strip non-required
+// properties so the model only sees what it must generate.
+function simplify_tool_parameters(params: any): any {
+  if (!params || params.type !== 'object') return params;
+  if (!Array.isArray(params.required) || params.required.length === 0) {
+    return { type: 'object', properties: {}, required: [] };
+  }
+  const simplified_properties: any = {};
+  for (const key of params.required) {
+    if (params.properties && params.properties[key]) {
+      const prop = params.properties[key];
+      simplified_properties[key] = { type: prop.type || 'string', description: prop.description || '' };
+    }
+  }
+  return { type: 'object', properties: simplified_properties, required: [...params.required] };
+}
+
 export interface OpenAiResponsesRequest {
   model?: string;
   stream?: boolean;
@@ -349,24 +428,18 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
     });
   }
 
-  // Map Codex model names to DeepSeek model names
-  const model_mapping: { [key: string]: string } = {
-    "gpt-5.1-codex-max": "deepseek-v4-pro",
-    "gpt-5.1-codex-mini": "deepseek-v4-flash",
-    "gpt-5.1-codex": "deepseek-v4-pro",
-    "gpt-5.1": "deepseek-v4-pro",
-    "gpt-4": "deepseek-v4-pro",
-    "gpt-3.5-turbo": "deepseek-v4-flash",
-    "deepseek-chat": "deepseek-v4-pro",
-    "deepseek-v4-pro": "deepseek-v4-pro",
-    "deepseek-v4-flash": "deepseek-v4-flash"
-  };
+  // Map Codex model names to DeepSeek model names (uses module-level model_mapping)
   const deepseek_model = model_mapping[model] || "deepseek-v4-pro";
+
+  // Fix message ordering: DeepSeek requires tool messages to immediately follow
+  // the assistant message with tool_calls. System messages (e.g. approval notes from
+  // Codex CLI) inserted between tool_calls and tool results break this sequence.
+  const fixed_messages = fix_message_sequence(messages);
 
   // Build chat completions request
   const chat_request: DeepSeekChatRequest = {
     model: deepseek_model,
-    messages: messages,
+    messages: fixed_messages,
     stream: stream,
     max_tokens: 4096,
     temperature: 0.7,
@@ -386,12 +459,15 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
         const func = tool.function || tool;
         const func_name = func.name || tool.name || 'unknown';
         logger.info(`Including function tool '${func_name}' in request`);
+        // Simplify parameters: keep only the required fields to help DeepSeek
+        // generate valid arguments (it often produces `{}` with complex schemas)
+        const simplified_params = simplify_tool_parameters(func.parameters || {});
         const deepseek_tool = {
           type: "function",
           function: {
             name: func_name,
             description: func.description || '',
-            parameters: func.parameters || {}
+            parameters: simplified_params
           }
         };
         tools.push(deepseek_tool);
@@ -400,6 +476,11 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
         // Web search tool - DeepSeek may not support this directly
         logger.info(`Skipping web_search tool as DeepSeek may not support it`);
         // Don't treat web_search as unsupported - just skip it
+        continue;
+      } else if (tool_type === 'namespace') {
+        // Codex 0.133.0+ sends namespace tools (e.g. multi_agent_v1) that contain sub-tools
+        // DeepSeek does not support nested namespaces, so skip without flagging as unsupported
+        logger.info(`Skipping namespace tool '${tool.name || 'unknown'}' as DeepSeek does not support nested tool namespaces`);
         continue;
       } else {
         if (tool_type === undefined) {
@@ -508,7 +589,7 @@ export function convert_tool_calls_response(deepseek_response: DeepSeekChatRespo
   const responses_response: OpenAiResponsesResponse = {
     id: deepseek_response.id || `resp_${randomBytes(8).toString('hex')}`,
     object: "response",
-    model: original_request.model || "deepseek-v4-pro",
+    model: get_response_model(original_request.model),
     choices: [
       {
         index: 0,
@@ -556,7 +637,7 @@ export function convert_regular_response(deepseek_response: DeepSeekChatResponse
   const responses_response: OpenAiResponsesResponse = {
     id: deepseek_response.id || `resp_${randomBytes(8).toString('hex')}`,
     object: "response",
-    model: original_request.model || "deepseek-v4-pro",
+    model: get_response_model(original_request.model),
     choices: [
       {
         index: 0,
@@ -609,7 +690,7 @@ export function convert_tool_calls_from_xml(deepseek_response: DeepSeekChatRespo
   const responses_response: OpenAiResponsesResponse = {
     id: deepseek_response.id || `resp_${randomBytes(8).toString('hex')}`,
     object: "response",
-    model: original_request.model || "deepseek-v4-pro",
+    model: get_response_model(original_request.model),
     choices: [
       {
         index: 0,
@@ -721,7 +802,7 @@ export function convert_stream_chunk(chunk: any, original_request: OpenAiRespons
       id: chunk.id || `resp_${randomBytes(8).toString('hex')}`,
       object: "response",
       created: chunk.created || Math.floor(Date.now() / 1000),
-      model: original_request.model || "deepseek-v4-pro",
+      model: get_response_model(original_request.model),
       choices: [
         {
           index: 0,
@@ -753,7 +834,7 @@ export function convert_stream_chunk(chunk: any, original_request: OpenAiRespons
       id: chunk.id || `resp_${randomBytes(8).toString('hex')}`,
       object: "response",
       created: chunk.created || Math.floor(Date.now() / 1000),
-      model: original_request.model || "deepseek-v4-pro",
+      model: get_response_model(original_request.model),
       choices: [
         {
           index: 0,
