@@ -60,6 +60,24 @@ The server starts on port 8098 by default (configurable via `PORT` env var).
 
 Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OPENAI_API_KEY`
 
+### Windows PowerShell
+
+```powershell
+$env:DEEPSEEK_API_KEY="sk-your-key-here"
+$env:MAX_TOKENS="16384"
+$env:MAX_INSTRUCTION_LENGTH="8000"
+npm start
+```
+
+### Windows CMD
+
+```cmd
+set DEEPSEEK_API_KEY=sk-your-key-here
+set MAX_TOKENS=16384
+set MAX_INSTRUCTION_LENGTH=8000
+npm start
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
