@@ -211,9 +211,11 @@ function deduplicate_tool_calls(messages: any[]): any[] {
   return result;
 }
 
-// Rough token estimate: 1 token ≈ 4 chars for most text, fewer for dense text
+// Rough token estimate: use a conservative ratio (2.0 chars/token vs the more
+// common 3-4 for prose) because code/HDL content tokenizes much more densely.
+// Underestimating skips truncation and triggers DeepSeek's hard 1M token limit.
 function estimate_tokens(text: string): number {
-  return Math.ceil(text.length / 3.5);
+  return Math.ceil(text.length / 2.0);
 }
 
 // Drop oldest non-system messages when total tokens approach the model context limit.
@@ -249,6 +251,7 @@ function truncate_messages(messages: any[], logger: any): any[] {
   if (total_tokens <= budget) {
     // Clean up temp property and return as-is
     for (const m of messages) delete m._tokens;
+    logger.debug(`Token estimate ${total_tokens} within budget ${budget}, no truncation needed`);
     return messages;
   }
 

@@ -18,7 +18,7 @@ Codex Bridge acts as a translation layer between OpenAI's Responses API format a
 - **Circuit breaker** — Prevents cascading failures when upstream is degraded
 - **Connection pooling** — Separate pools for streaming and non-streaming requests
 - **Codex CLI 0.133.0+ support** — Handles namespace tool types, model response mapping, message reordering for tool call sequences, parameter schema simplification for DeepSeek compatibility, and empty argument fallback to XML/text
-- **Context window management** — Auto-truncates oldest history when approaching model's token limit (configurable via `CONTEXT_LIMIT` / `COMPLETION_HEADROOM`)
+- **Context window management** — Conservative token estimation (2.0 chars/token) with auto-truncation of oldest history when approaching model's token limit (configurable via `CONTEXT_LIMIT` / `COMPLETION_HEADROOM`)
 - **Tool call deduplication** — Collapses consecutive identical tool call blocks to prevent DeepSeek from looping on repeated function calls
 - **Rate limiting** — Per-IP sliding window (configurable via `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS`)
 - **API key auth** — Optional `CODEX_API_KEY` for client authentication
@@ -117,7 +117,7 @@ set SHELL=C:\Program Files\Git\bin\bash.exe
 codex_bridge/
 ├── src/
 │   ├── server.ts              # Express server setup and routes
-│   ├── converter.ts           # API format conversion (OpenAI ↔ DeepSeek), namespace tool handling, message sequence reordering, tool call deduplication, model response mapping, context truncation
+│   ├── converter.ts           # API format conversion (OpenAI ↔ DeepSeek), namespace tool handling, message sequence reordering, tool call deduplication, model response mapping, conservative token estimation, context truncation
 │   ├── streaming.ts           # SSE streaming handlers
 │   ├── auth.ts                # API key validation middleware
 │   ├── rate-limiter.ts        # Sliding window rate limiter
