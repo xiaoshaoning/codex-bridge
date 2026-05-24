@@ -160,6 +160,57 @@ function fix_message_sequence(messages: any[]): any[] {
   return result;
 }
 
+// Collapse consecutive identical tool call + result blocks to break DeepSeek
+// looping. DeepSeek sometimes repeats the same function call (same name+args,
+// different call_id) multiple times. Removing the redundant history prevents
+// the model from seeing its own repetition and reinforcing the loop.
+function deduplicate_tool_calls(messages: any[]): any[] {
+  const result: any[] = [];
+  let i = 0;
+
+  while (i < messages.length) {
+    if (messages[i].role === 'assistant' && messages[i].tool_calls?.length > 0) {
+      // Find end of tool result messages following this assistant
+      let j = i + 1;
+      while (j < messages.length && messages[j].role === 'tool') {
+        j++;
+      }
+
+      // Look ahead for consecutive assistant blocks with identical tool calls
+      let next = j;
+      let has_duplicate = false;
+      while (next < messages.length) {
+        if (messages[next].role !== 'assistant' || !messages[next].tool_calls) break;
+
+        const is_repeat = messages[i].tool_calls.length === messages[next].tool_calls.length &&
+          messages[i].tool_calls.every((tc: any, idx: number) =>
+            tc.function?.name === messages[next].tool_calls[idx]?.function?.name &&
+            tc.function?.arguments === messages[next].tool_calls[idx]?.function?.arguments
+          );
+
+        if (!is_repeat) break;
+
+        has_duplicate = true;
+        next++;
+        while (next < messages.length && messages[next].role === 'tool') {
+          next++;
+        }
+      }
+
+      // Keep the first occurrence only
+      for (let k = i; k < j; k++) {
+        result.push(messages[k]);
+      }
+      i = has_duplicate ? next : j;
+    } else {
+      result.push(messages[i]);
+      i++;
+    }
+  }
+
+  return result;
+}
+
 // Rough token estimate: 1 token ≈ 4 chars for most text, fewer for dense text
 function estimate_tokens(text: string): number {
   return Math.ceil(text.length / 3.5);
@@ -575,9 +626,13 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
   // Codex CLI) inserted between tool_calls and tool results break this sequence.
   const fixed_messages = fix_message_sequence(messages);
 
+  // Collapse consecutive identical tool call blocks to break DeepSeek
+  // repetition loops (same function name+args repeated with different call_ids).
+  const deduped_messages = deduplicate_tool_calls(fixed_messages);
+
   // Truncate oldest messages when approaching the model's context limit (~1M tokens)
   // to avoid DeepSeek's token limit errors on long conversations.
-  const truncated_messages = truncate_messages(fixed_messages, logger);
+  const truncated_messages = truncate_messages(deduped_messages, logger);
 
   // Build chat completions request
   const chat_request: DeepSeekChatRequest = {
