@@ -515,7 +515,7 @@ export async function handle_non_streaming_response(
   plugin: ConverterPlugin
 ): Promise<any> {
   try {
-    logger.info(`Sending to DeepSeek (truncated): ${JSON.stringify(converted_data).substring(0, 1000)}`);
+    // logger.info(`Sending to DeepSeek (truncated): ${JSON.stringify(converted_data).substring(0, 1000)}`); // Disabled: could contain sensitive data
     const deepseek_start_time = Date.now();
 
     const baseURL = new URL(target_url).origin;

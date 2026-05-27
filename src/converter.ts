@@ -373,7 +373,7 @@ export interface StreamChunk {
 
 export function convert_responses_to_chat_completions(responses_request: OpenAiResponsesRequest, logger: any): DeepSeekChatRequest {
   logger.debug(`DEBUG convert_responses_to_chat_completions called, keys: ${Object.keys(responses_request)}`);
-  logger.debug(`Full request: ${JSON.stringify(responses_request, null, 2)}`);
+  // logger.debug(`Full request: ${JSON.stringify(responses_request, null, 2)}`); // Disabled: could contain sensitive data
   // Use client's stream setting
   const stream = responses_request.stream || false;
   logger.info(`Using streaming mode: ${stream}`);
@@ -718,7 +718,7 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
   if (chat_request.tools !== undefined) {
     logger.info(`Tools count: ${chat_request.tools.length}`);
   }
-  logger.debug(`Messages: ${JSON.stringify(messages, null, 2)}`);
+  // logger.debug(`Messages: ${JSON.stringify(messages, null, 2)}`); // Disabled: could contain sensitive data
 
   return chat_request;
 }
