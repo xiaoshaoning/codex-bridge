@@ -1076,7 +1076,8 @@ export function convert_stream_chunk(chunk: any, original_request: OpenAiRespons
           delta: new_delta,
           finish_reason: finish_reason || null
         }
-      ]
+      ],
+      usage: chunk.usage || undefined
     };
     // Add system_fingerprint if present, otherwise add default
     if (chunk.system_fingerprint !== undefined) {
@@ -1108,7 +1109,8 @@ export function convert_stream_chunk(chunk: any, original_request: OpenAiRespons
           delta: new_delta,
           finish_reason: finish_reason || null
         }
-      ]
+      ],
+      usage: chunk.usage || undefined
     };
     // Add system_fingerprint if present, otherwise add default
     if (chunk.system_fingerprint !== undefined) {
