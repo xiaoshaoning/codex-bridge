@@ -68,17 +68,73 @@ The server starts on port 8098 by default (configurable via `PORT` env var).
 
 Auth key resolution order: `DEEPSEEK_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `OPENAI_API_KEY`
 
+## Codex CLI Configuration
+
+Connect [OpenAI Codex CLI](https://github.com/openai/codex) to the bridge by editing `~/.codex/config.toml`:
+
+```toml
+model_provider = "deepseek"
+model = "deepseek-v4-pro"
+
+[model_providers.deepseek]
+name = "DeepSeek"
+base_url = "http://localhost:8098/v1"
+requires_openai_auth = false
+wire_api = "responses"
+supports_websockets = false
+```
+
+| Key | Value | Why |
+|-----|-------|-----|
+| `base_url` | `http://localhost:8098/v1` | Routes requests through the bridge instead of api.openai.com |
+| `requires_openai_auth` | `false` | Bridge handles the DeepSeek API key server-side — Codex CLI skips OAuth |
+| `wire_api` | `responses` | Uses OpenAI Responses API format (the format the bridge translates) |
+| `supports_websockets` | `false` | Disables WebSocket transport (simpler SSE-only path) |
+
+The top-level `model_provider` and `model` make deepseek the default — no `-p` flag needed. Available models: `deepseek-v4-pro` (heavy coding), `deepseek-v4-flash` (quick edits).
+
+Add profiles to switch models by task:
+
+```toml
+[profiles.pro]
+model_provider = "deepseek"
+model = "deepseek-v4-pro"
+
+[profiles.fast]
+model_provider = "deepseek"
+model = "deepseek-v4-flash"
+```
+
+```bash
+codex exec -p pro "implement a pipelined multiplier in Verilog"   # complex work
+codex exec -p fast "fix the wire declaration on line 42"          # quick edits
+```
+
+### Verify
+
+```bash
+codex exec -m deepseek-v4-pro "hello world"
+```
+
+The startup banner must show `provider: deepseek` (not `openai`). If it says `openai`, Codex CLI is ignoring the config — check that `model_provider` is set at the top level.
+
 ### Windows Shell Recommendation
 
-DeepSeek models have limited training data for PowerShell syntax and often generate malformed commands on Windows. For best results, set `SHELL` to Git Bash before starting Codex CLI:
+DeepSeek models have limited PowerShell training data and often generate malformed commands on Windows, causing loops (e.g. retrying broken `Set-Acl` syntax on stale `.git` lock files). For best results, set `SHELL` to Git Bash before starting Codex CLI:
 
 ```powershell
+# PowerShell
 $env:SHELL = "C:\Program Files\Git\bin\bash.exe"
 ```
 
 ```cmd
+REM Command Prompt
 set SHELL=C:\Program Files\Git\bin\bash.exe
 ```
+
+To set permanently in CMD: `setx SHELL "C:\Program Files\Git\bin\bash.exe"`
+
+For a detailed walkthrough, see [docs/usage.md](docs/usage.md).
 
 ## API Endpoints
 
