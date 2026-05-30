@@ -149,7 +149,21 @@ app.use(rateLimiter.middleware());
 app.use((req: Request, _res: Response, next: NextFunction) => {
   const request_id = (req as any).requestId;
   logger.info(`Incoming ${req.method} request to ${req.path}`, { reqId: request_id });
-  logger.info(`Headers: ${JSON.stringify(req.headers)}`, { reqId: request_id });
+  // Sanitize headers to avoid leaking sensitive data like API keys
+  const sanitized_headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    sanitized_headers[key] = Array.isArray(value) ? value.join(', ') : (value || '');
+  };
+  if (sanitized_headers['authorization']) {
+    sanitized_headers['authorization'] = sanitized_headers['authorization'].substring(0, 15) + '... [REDACTED]';
+  }
+  if (sanitized_headers['x-api-key']) {
+    sanitized_headers['x-api-key'] = sanitized_headers['x-api-key'].substring(0, 8) + '... [REDACTED]';
+  }
+  if (sanitized_headers['x-shutdown-secret']) {
+    sanitized_headers['x-shutdown-secret'] = '[REDACTED]';
+  }
+  logger.info(`Headers: ${JSON.stringify(sanitized_headers)}`, { reqId: request_id });
   logger.info(`Content-Type: ${req.get('Content-Type')}`, { reqId: request_id });
   if (req.get('Content-Length')) {
     logger.info(`Content-Length: ${req.get('Content-Length')}`, { reqId: request_id });
@@ -256,9 +270,7 @@ async function responses_proxy(req: Request, res: Response) {
     loggerWithReqId.info(`DEBUG stream value: ${data.stream}, type: ${typeof data.stream}`);
     console.log(`PROXY: Received request, model: ${data.model || 'unknown'}`);
 
-    // Write request to file for debugging
-    const fs = await import('fs');
-    fs.writeFileSync(path.join(log_dir, 'request_debug_new.json'), JSON.stringify(data, null, 2), 'utf-8');
+    // Debug file writing disabled to prevent leaking sensitive data
 
     // Resolve converter plugin for the requested model
     const modelName = data.model || 'deepseek-v4-pro';

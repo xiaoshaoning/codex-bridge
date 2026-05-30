@@ -385,7 +385,7 @@ export interface StreamChunk {
 
 export function convert_responses_to_chat_completions(responses_request: OpenAiResponsesRequest, logger: any): DeepSeekChatRequest {
   logger.debug(`DEBUG convert_responses_to_chat_completions called, keys: ${Object.keys(responses_request)}`);
-  logger.debug(`Full request: ${JSON.stringify(responses_request, null, 2)}`);
+  // logger.debug(`Full request: ${JSON.stringify(responses_request, null, 2)}`); // Disabled: could contain sensitive data
   // Use client's stream setting
   const stream = responses_request.stream || false;
   logger.info(`Using streaming mode: ${stream}`);
@@ -730,9 +730,21 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
   if (chat_request.tools !== undefined) {
     logger.info(`Tools count: ${chat_request.tools.length}`);
   }
-  logger.debug(`Messages: ${JSON.stringify(messages, null, 2)}`);
+  // logger.debug(`Messages: ${JSON.stringify(messages, null, 2)}`); // Disabled: could contain sensitive data
 
   return chat_request;
+}
+
+
+export function convert_deepseek_usage_to_responses(usage: any): any {
+  if (!usage || typeof usage !== 'object') {
+    return { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+  }
+  return {
+    input_tokens: usage.prompt_tokens ?? 0,
+    output_tokens: usage.completion_tokens ?? 0,
+    total_tokens: usage.total_tokens ?? 0
+  };
 }
 
 export function convert_chat_completions_to_responses(deepseek_response: DeepSeekChatResponse, original_request: OpenAiResponsesRequest, logger: any): OpenAiResponsesResponse | null {
@@ -833,7 +845,7 @@ export function convert_tool_calls_response(deepseek_response: DeepSeekChatRespo
         message: { role: "assistant", content: "" },
         finish_reason: "stop"
       }],
-      usage: deepseek_response.usage || {},
+      usage: convert_deepseek_usage_to_responses(deepseek_response.usage),
       created: deepseek_response.created || 0
     };
   }
@@ -872,7 +884,7 @@ export function convert_tool_calls_response(deepseek_response: DeepSeekChatRespo
         finish_reason: choices[0].finish_reason || "tool_calls"
       }
     ],
-    usage: deepseek_response.usage || {},
+    usage: convert_deepseek_usage_to_responses(deepseek_response.usage),
     created: deepseek_response.created || 0
   };
 
@@ -915,7 +927,7 @@ export function convert_regular_response(deepseek_response: DeepSeekChatResponse
         finish_reason: choices[0].finish_reason || "stop"
       }
     ],
-    usage: deepseek_response.usage || {},
+    usage: convert_deepseek_usage_to_responses(deepseek_response.usage),
     created: deepseek_response.created || 0
   };
 
@@ -969,7 +981,7 @@ export function convert_tool_calls_from_xml(deepseek_response: DeepSeekChatRespo
         finish_reason: "tool_calls"
       }
     ],
-    usage: deepseek_response.usage || {},
+    usage: convert_deepseek_usage_to_responses(deepseek_response.usage),
     created: deepseek_response.created || 0
   };
 
@@ -1076,7 +1088,8 @@ export function convert_stream_chunk(chunk: any, original_request: OpenAiRespons
           delta: new_delta,
           finish_reason: finish_reason || null
         }
-      ]
+      ],
+      usage: chunk.usage || undefined
     };
     // Add system_fingerprint if present, otherwise add default
     if (chunk.system_fingerprint !== undefined) {
@@ -1108,7 +1121,8 @@ export function convert_stream_chunk(chunk: any, original_request: OpenAiRespons
           delta: new_delta,
           finish_reason: finish_reason || null
         }
-      ]
+      ],
+      usage: chunk.usage || undefined
     };
     // Add system_fingerprint if present, otherwise add default
     if (chunk.system_fingerprint !== undefined) {
