@@ -160,68 +160,42 @@ function fix_message_sequence(messages: any[]): any[] {
   return result;
 }
 
-// Tool names that should never repeat — DeepSeek often loops on these by
-// generating calls with slightly different arguments. For these tools, dedup
-// uses name-only fingerprint to catch all variants.
-const CONTROL_TOOLS = new Set(['update_plan']);
-
 // Collapse repeated tool call + result blocks to break DeepSeek looping.
 // DeepSeek sometimes repeats the same function call (same name+args, different
 // call_id) multiple times — in adjacent blocks OR alternating patterns (A→B→A→B).
-// For control tools (update_plan, etc.), uses name-only matching since DeepSeek
-// often varies the arguments slightly while looping the same intent.
 // Uses a sliding fingerprint window to detect cycles at any distance so the
 // model cannot see its own repetition and reinforce the loop.
 function deduplicate_tool_calls(messages: any[], logger: any): any[] {
   const result: any[] = [];
-  // Window of recent tool call fingerprints to detect repeating patterns.
-  // Window size 20 is large enough to catch realistic loops (adjacent + alternating)
-  // while small enough to allow legitimate repetition after sufficient context change.
   const recentFingerprints: string[] = [];
   const MAX_WINDOW = 20;
   let i = 0;
   let duplicatesRemoved = 0;
 
-  function fingerprint(tool_calls: any[], nameOnly: boolean = false): string {
-    return tool_calls.map(tc => {
-      const name = tc.function?.name || '';
-      if (nameOnly) return name;
-      return `${name}:${tc.function?.arguments || ''}`;
-    }).join('||');
-  }
-
-  // Check whether ALL tool calls in this block are control tools
-  function allControlTools(tool_calls: any[]): boolean {
-    return tool_calls.length > 0 && tool_calls.every(tc => CONTROL_TOOLS.has(tc.function?.name || ''));
+  function fingerprint(tool_calls: any[]): string {
+    return tool_calls.map(tc =>
+      `${tc.function?.name || ''}:${tc.function?.arguments || ''}`
+    ).join('||');
   }
 
   while (i < messages.length) {
     if (messages[i].role === 'assistant' && messages[i].tool_calls?.length > 0) {
-      // Find end of tool result messages following this assistant
       let j = i + 1;
       while (j < messages.length && messages[j].role === 'tool') {
         j++;
       }
 
-      // For control tools use name-only fingerprint (catch all argument variants),
-      // for other tools use name+args (catch exact repetitions)
-      const nameOnly = allControlTools(messages[i].tool_calls);
-      const fp = fingerprint(messages[i].tool_calls, nameOnly);
+      const fp = fingerprint(messages[i].tool_calls);
 
-      // Check if this fingerprint has appeared recently — if so, this is
-      // a repeated tool call pattern (either adjacent or in a cycle)
       if (recentFingerprints.includes(fp)) {
         duplicatesRemoved++;
         logger.debug(`[dedup] Skipping duplicate tool call block: ${fp.substring(0, 80)} (removed #${duplicatesRemoved})`);
-        // Skip the entire assistant + tool messages block
         i = j;
       } else {
         recentFingerprints.push(fp);
-        // Keep window bounded so very old fingerprints don't block legitimate repetition
         if (recentFingerprints.length > MAX_WINDOW) {
           recentFingerprints.shift();
         }
-        // Keep the first occurrence
         for (let k = i; k < j; k++) {
           result.push(messages[k]);
         }
