@@ -176,6 +176,21 @@ export async function handle_streaming_response(
     let total_bytes_written = 0;
     const has_tools = !!(original_request.tools && Array.isArray(original_request.tools) && original_request.tools.length > 0);
 
+    // Response-side loop guard: track emitted tool call fingerprints to detect
+    // when DeepSeek is repeating the same tool call during a single stream.
+    const emittedToolCallCounts = new Map<string, number>();
+    const STREAM_TOOL_CALL_REPEAT_LIMIT = 3;
+    function check_tool_call_repeat_limit(name: string, args: string): boolean {
+      const fp = `${name}:${args}`;
+      const count = (emittedToolCallCounts.get(fp) || 0) + 1;
+      emittedToolCallCounts.set(fp, count);
+      if (count >= STREAM_TOOL_CALL_REPEAT_LIMIT) {
+        logger.warn(`[stream-guard] Tool call '${name}' repeated ${count} times in stream — aborting to prevent loop`);
+        return true;
+      }
+      return false;
+    }
+
     const stream = response.data;
 
     stream.on('data', async (chunk: Buffer) => {
@@ -308,6 +323,16 @@ export async function handle_streaming_response(
               const item = { type: "function_call", call_id: acc.id, name: acc.name, arguments: arguments_str };
               const done_event = { type: "response.output_item.done", item };
               await backpressure_write(res, `event: response.output_item.done\ndata: ${JSON.stringify(done_event)}\n\n`);
+
+              // Response-side loop guard: if the same tool call (name + args) is
+              // emitted 3+ times in a single stream, DeepSeek is stuck in a loop.
+              if (check_tool_call_repeat_limit(acc.name, arguments_str)) {
+                logger.warn(`Aborting stream due to repeated tool call loop (${acc.name})`);
+                abortController.abort();
+                safe_destroy_stream(stream);
+                safe_end();
+                return;
+              }
             }
             // If all tool calls had empty arguments, fall back to XML parsing from content buffer
             if (!any_valid_tool_call && content_buffer) {

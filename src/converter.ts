@@ -160,13 +160,26 @@ function fix_message_sequence(messages: any[]): any[] {
   return result;
 }
 
-// Collapse consecutive identical tool call + result blocks to break DeepSeek
-// looping. DeepSeek sometimes repeats the same function call (same name+args,
-// different call_id) multiple times. Removing the redundant history prevents
-// the model from seeing its own repetition and reinforcing the loop.
-function deduplicate_tool_calls(messages: any[]): any[] {
+// Collapse repeated tool call + result blocks to break DeepSeek looping.
+// DeepSeek sometimes repeats the same function call (same name+args, different
+// call_id) multiple times — in adjacent blocks OR alternating patterns (A→B→A→B).
+// Uses a sliding fingerprint window to detect cycles at any distance so the
+// model cannot see its own repetition and reinforce the loop.
+function deduplicate_tool_calls(messages: any[], logger: any): any[] {
   const result: any[] = [];
+  // Window of recent tool call fingerprints to detect repeating patterns.
+  // Window size 20 is large enough to catch realistic loops (adjacent + alternating)
+  // while small enough to allow legitimate repetition after sufficient context change.
+  const recentFingerprints: string[] = [];
+  const MAX_WINDOW = 20;
   let i = 0;
+  let duplicatesRemoved = 0;
+
+  function fingerprint(tool_calls: any[]): string {
+    return tool_calls.map(tc =>
+      `${tc.function?.name || ''}:${tc.function?.arguments || ''}`
+    ).join('||');
+  }
 
   while (i < messages.length) {
     if (messages[i].role === 'assistant' && messages[i].tool_calls?.length > 0) {
@@ -176,36 +189,35 @@ function deduplicate_tool_calls(messages: any[]): any[] {
         j++;
       }
 
-      // Look ahead for consecutive assistant blocks with identical tool calls
-      let next = j;
-      let has_duplicate = false;
-      while (next < messages.length) {
-        if (messages[next].role !== 'assistant' || !messages[next].tool_calls) break;
+      const fp = fingerprint(messages[i].tool_calls);
 
-        const is_repeat = messages[i].tool_calls.length === messages[next].tool_calls.length &&
-          messages[i].tool_calls.every((tc: any, idx: number) =>
-            tc.function?.name === messages[next].tool_calls[idx]?.function?.name &&
-            tc.function?.arguments === messages[next].tool_calls[idx]?.function?.arguments
-          );
-
-        if (!is_repeat) break;
-
-        has_duplicate = true;
-        next++;
-        while (next < messages.length && messages[next].role === 'tool') {
-          next++;
+      // Check if this fingerprint has appeared recently — if so, this is
+      // a repeated tool call pattern (either adjacent or in a cycle)
+      if (recentFingerprints.includes(fp)) {
+        duplicatesRemoved++;
+        logger.debug(`[dedup] Skipping duplicate tool call block: ${fp.substring(0, 80)} (removed #${duplicatesRemoved})`);
+        // Skip the entire assistant + tool messages block
+        i = j;
+      } else {
+        recentFingerprints.push(fp);
+        // Keep window bounded so very old fingerprints don't block legitimate repetition
+        if (recentFingerprints.length > MAX_WINDOW) {
+          recentFingerprints.shift();
         }
+        // Keep the first occurrence
+        for (let k = i; k < j; k++) {
+          result.push(messages[k]);
+        }
+        i = j;
       }
-
-      // Keep the first occurrence only
-      for (let k = i; k < j; k++) {
-        result.push(messages[k]);
-      }
-      i = has_duplicate ? next : j;
     } else {
       result.push(messages[i]);
       i++;
     }
+  }
+
+  if (duplicatesRemoved > 0) {
+    logger.warn(`[dedup] Removed ${duplicatesRemoved} repeated tool call block(s) to prevent DeepSeek looping (messages: ${messages.length} → ${result.length})`);
   }
 
   return result;
@@ -631,7 +643,7 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
 
   // Collapse consecutive identical tool call blocks to break DeepSeek
   // repetition loops (same function name+args repeated with different call_ids).
-  const deduped_messages = deduplicate_tool_calls(fixed_messages);
+  const deduped_messages = deduplicate_tool_calls(fixed_messages, logger);
 
   // Truncate oldest messages when approaching the model's context limit (~1M tokens)
   // to avoid DeepSeek's token limit errors on long conversations.

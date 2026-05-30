@@ -49,18 +49,32 @@ npm start
 ### Windows PowerShell
 
 ```powershell
+# Install dependencies & build
+npm install
+npm run build
+
+# Set your DeepSeek API key
 $env:DEEPSEEK_API_KEY="sk-your-key-here"
 $env:MAX_TOKENS="16384"
 $env:MAX_INSTRUCTION_LENGTH="8000"
+
+# Start the server
 npm start
 ```
 
 ### Windows CMD
 
 ```cmd
+:: Install dependencies & build
+npm install
+npm run build
+
+:: Set your DeepSeek API key
 set DEEPSEEK_API_KEY=sk-your-key-here
 set MAX_TOKENS=16384
 set MAX_INSTRUCTION_LENGTH=8000
+
+:: Start the server
 npm start
 ```
 
