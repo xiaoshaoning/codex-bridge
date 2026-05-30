@@ -178,10 +178,14 @@ export async function handle_streaming_response(
 
     // Response-side loop guard: track emitted tool call fingerprints to detect
     // when DeepSeek is repeating the same tool call during a single stream.
+    // For control tools (update_plan) uses name-only tracking since DeepSeek
+    // varies arguments while looping the same intent.
+    const CONTROL_TOOLS = new Set(['update_plan']);
     const emittedToolCallCounts = new Map<string, number>();
     const STREAM_TOOL_CALL_REPEAT_LIMIT = 3;
     function check_tool_call_repeat_limit(name: string, args: string): boolean {
-      const fp = `${name}:${args}`;
+      // For control tools, use name-only fingerprint (ignore argument variations)
+      const fp = CONTROL_TOOLS.has(name) ? name : `${name}:${args}`;
       const count = (emittedToolCallCounts.get(fp) || 0) + 1;
       emittedToolCallCounts.set(fp, count);
       if (count >= STREAM_TOOL_CALL_REPEAT_LIMIT) {

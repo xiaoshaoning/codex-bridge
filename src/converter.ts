@@ -160,9 +160,16 @@ function fix_message_sequence(messages: any[]): any[] {
   return result;
 }
 
+// Tool names that should never repeat — DeepSeek often loops on these by
+// generating calls with slightly different arguments. For these tools, dedup
+// uses name-only fingerprint to catch all variants.
+const CONTROL_TOOLS = new Set(['update_plan']);
+
 // Collapse repeated tool call + result blocks to break DeepSeek looping.
 // DeepSeek sometimes repeats the same function call (same name+args, different
 // call_id) multiple times — in adjacent blocks OR alternating patterns (A→B→A→B).
+// For control tools (update_plan, etc.), uses name-only matching since DeepSeek
+// often varies the arguments slightly while looping the same intent.
 // Uses a sliding fingerprint window to detect cycles at any distance so the
 // model cannot see its own repetition and reinforce the loop.
 function deduplicate_tool_calls(messages: any[], logger: any): any[] {
@@ -175,10 +182,17 @@ function deduplicate_tool_calls(messages: any[], logger: any): any[] {
   let i = 0;
   let duplicatesRemoved = 0;
 
-  function fingerprint(tool_calls: any[]): string {
-    return tool_calls.map(tc =>
-      `${tc.function?.name || ''}:${tc.function?.arguments || ''}`
-    ).join('||');
+  function fingerprint(tool_calls: any[], nameOnly: boolean = false): string {
+    return tool_calls.map(tc => {
+      const name = tc.function?.name || '';
+      if (nameOnly) return name;
+      return `${name}:${tc.function?.arguments || ''}`;
+    }).join('||');
+  }
+
+  // Check whether ALL tool calls in this block are control tools
+  function allControlTools(tool_calls: any[]): boolean {
+    return tool_calls.length > 0 && tool_calls.every(tc => CONTROL_TOOLS.has(tc.function?.name || ''));
   }
 
   while (i < messages.length) {
@@ -189,7 +203,10 @@ function deduplicate_tool_calls(messages: any[], logger: any): any[] {
         j++;
       }
 
-      const fp = fingerprint(messages[i].tool_calls);
+      // For control tools use name-only fingerprint (catch all argument variants),
+      // for other tools use name+args (catch exact repetitions)
+      const nameOnly = allControlTools(messages[i].tool_calls);
+      const fp = fingerprint(messages[i].tool_calls, nameOnly);
 
       // Check if this fingerprint has appeared recently — if so, this is
       // a repeated tool call pattern (either adjacent or in a cycle)
@@ -645,6 +662,15 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
   // repetition loops (same function name+args repeated with different call_ids).
   const deduped_messages = deduplicate_tool_calls(fixed_messages, logger);
 
+  // If dedup removed >30% of messages, DeepSeek is in a loop. Force text-only
+  // response to break the cycle — otherwise the model keeps generating tool calls
+  // that Codex CLI re-executes, feeding the loop.
+  let force_text_only = false;
+  if (deduped_messages.length < fixed_messages.length * 0.7) {
+    force_text_only = true;
+    logger.warn(`[anti-loop] Dedup removed ${fixed_messages.length - deduped_messages.length} blocks (${fixed_messages.length}→${deduped_messages.length}), forcing text-only to break cycle`);
+  }
+
   // Truncate oldest messages when approaching the model's context limit (~1M tokens)
   // to avoid DeepSeek's token limit errors on long conversations.
   const truncated_messages = truncate_messages(deduped_messages, logger);
@@ -705,10 +731,10 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
       }
     }
 
-    logger.info(`Tool conversion: ${tools.length} valid tools, has_unsupported_tools=${has_unsupported_tools}`);
+    logger.info(`Tool conversion: ${tools.length} valid tools, has_unsupported_tools=${has_unsupported_tools}, force_text_only=${force_text_only}`);
     // If there are valid tools and no unsupported tool types, include them
-    // Otherwise force text-only response to avoid DeepSeek API errors
-    if (tools.length > 0 && !has_unsupported_tools) {
+    // Unless anti-loop detection has forced text-only mode
+    if (tools.length > 0 && !has_unsupported_tools && !force_text_only) {
       chat_request.tools = tools;
       // Set tool_choice (always include it when tools are present)
       const tool_choice = responses_request.tool_choice || 'auto';
@@ -716,7 +742,10 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
       logger.info(`Included ${tools.length} function tools in request, tool_choice=${tool_choice}`);
     } else {
       // Force text-only response when there are unsupported tools or no valid tools
-      if (has_unsupported_tools) {
+      // or anti-loop detection kicked in
+      if (force_text_only) {
+        logger.info("Forcing text-only response due to anti-loop detection");
+      } else if (has_unsupported_tools) {
         logger.info("Forcing text-only response due to unsupported tool types");
       } else if (tools.length === 0) {
         logger.info("Forcing text-only response due to no valid tools after filtering");
