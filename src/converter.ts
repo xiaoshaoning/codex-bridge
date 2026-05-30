@@ -662,15 +662,6 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
   // repetition loops (same function name+args repeated with different call_ids).
   const deduped_messages = deduplicate_tool_calls(fixed_messages, logger);
 
-  // If dedup removed >30% of messages, DeepSeek is in a loop. Force text-only
-  // response to break the cycle — otherwise the model keeps generating tool calls
-  // that Codex CLI re-executes, feeding the loop.
-  let force_text_only = false;
-  if (deduped_messages.length < fixed_messages.length * 0.7) {
-    force_text_only = true;
-    logger.warn(`[anti-loop] Dedup removed ${fixed_messages.length - deduped_messages.length} blocks (${fixed_messages.length}→${deduped_messages.length}), forcing text-only to break cycle`);
-  }
-
   // Truncate oldest messages when approaching the model's context limit (~1M tokens)
   // to avoid DeepSeek's token limit errors on long conversations.
   const truncated_messages = truncate_messages(deduped_messages, logger);
@@ -731,21 +722,14 @@ export function convert_responses_to_chat_completions(responses_request: OpenAiR
       }
     }
 
-    logger.info(`Tool conversion: ${tools.length} valid tools, has_unsupported_tools=${has_unsupported_tools}, force_text_only=${force_text_only}`);
-    // If there are valid tools and no unsupported tool types, include them
-    // Unless anti-loop detection has forced text-only mode
-    if (tools.length > 0 && !has_unsupported_tools && !force_text_only) {
+    logger.info(`Tool conversion: ${tools.length} valid tools, has_unsupported_tools=${has_unsupported_tools}`);
+    if (tools.length > 0 && !has_unsupported_tools) {
       chat_request.tools = tools;
-      // Set tool_choice (always include it when tools are present)
       const tool_choice = responses_request.tool_choice || 'auto';
       chat_request.tool_choice = tool_choice;
       logger.info(`Included ${tools.length} function tools in request, tool_choice=${tool_choice}`);
     } else {
-      // Force text-only response when there are unsupported tools or no valid tools
-      // or anti-loop detection kicked in
-      if (force_text_only) {
-        logger.info("Forcing text-only response due to anti-loop detection");
-      } else if (has_unsupported_tools) {
+      if (has_unsupported_tools) {
         logger.info("Forcing text-only response due to unsupported tool types");
       } else if (tools.length === 0) {
         logger.info("Forcing text-only response due to no valid tools after filtering");
