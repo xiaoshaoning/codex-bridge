@@ -69,13 +69,17 @@ npm start
 npm install
 npm run build
 
-:: Set your DeepSeek API key
+:: Set your DeepSeek API key and start
 set DEEPSEEK_API_KEY=sk-your-key-here
 set MAX_TOKENS=16384
 set MAX_INSTRUCTION_LENGTH=8000
-
-:: Start the server
 npm start
+```
+
+Or use the setup script that reads from `.env` and prompts interactively if the key is missing:
+
+```cmd
+set-env.bat && npm start
 ```
 
 The server starts on port 8098 by default (configurable via `PORT` env var).
@@ -149,6 +153,37 @@ set SHELL=C:\Program Files\Git\bin\bash.exe
 To set permanently in CMD: `setx SHELL "C:\Program Files\Git\bin\bash.exe"`
 
 For a detailed walkthrough, see [docs/usage.md](docs/usage.md).
+
+### WSL2 Setup
+
+Running Codex CLI natively under WSL2 while the bridge stays on the Windows host gives you full Linux sandboxing without a separate VM. WSL2 has its own network namespace — the bridge on Windows `localhost` is **not** reachable from WSL's `localhost`. Communication goes through the Hyper-V virtual switch gateway instead.
+
+For a complete walkthrough covering networking, PATH fixes, shell wrapper, profiles, and troubleshooting, see **[docs/wsl-setup.md](docs/wsl-setup.md)**.
+
+Quick architecture:
+
+```
+┌──────────── WSL2 ───────────┐
+│  Codex CLI ──HTTP──► Windows Host (vSwitch gateway) :8098
+└──────────────────────────────┘
+                              │
+              ┌───────────────▼──────────────┐
+              │  Codex Bridge (Windows) :8098│
+              └───────────────┬──────────────┘
+                              │
+              ┌───────────────▼──────────────┐
+              │  DeepSeek API                │
+              └──────────────────────────────┘
+```
+
+The guide covers:
+
+- Installing Codex CLI under WSL (Linux binary via WSL's npm — Windows npm ships the wrong platform binary)
+- Fixing PATH so WSL's Codex isn't shadowed by the Windows npm installation
+- Resolving the Windows host IP dynamically via `ip route show default`
+- Shell wrapper function to auto-resolve the IP on every invocation
+- Profile configuration as separate files (required by Codex v0.135.0+)
+- Troubleshooting: stream disconnects, `chat_completions` errors, legacy profile conflicts
 
 ## API Endpoints
 

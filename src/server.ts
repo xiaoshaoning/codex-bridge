@@ -149,7 +149,21 @@ app.use(rateLimiter.middleware());
 app.use((req: Request, _res: Response, next: NextFunction) => {
   const request_id = (req as any).requestId;
   logger.info(`Incoming ${req.method} request to ${req.path}`, { reqId: request_id });
-  logger.info(`Headers: ${JSON.stringify(req.headers)}`, { reqId: request_id });
+  // Log headers with sensitive fields sanitized
+  const safe_headers: Record<string, any> = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    const lower_key = key.toLowerCase();
+    if (lower_key === 'authorization' || lower_key === 'x-api-key') {
+      safe_headers[key] = typeof value === 'string' && value.length > 8
+        ? value.substring(0, 10) + '...'
+        : '***';
+    } else if (lower_key === 'cookie' || lower_key === 'set-cookie') {
+      safe_headers[key] = '***';
+    } else {
+      safe_headers[key] = value;
+    }
+  }
+  logger.info(`Headers: ${JSON.stringify(safe_headers)}`, { reqId: request_id });
   logger.info(`Content-Type: ${req.get('Content-Type')}`, { reqId: request_id });
   if (req.get('Content-Length')) {
     logger.info(`Content-Length: ${req.get('Content-Length')}`, { reqId: request_id });
